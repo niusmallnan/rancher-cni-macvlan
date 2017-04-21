@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+source $(dirname $0)/version
+
+ARCH=${ARCH:?"ARCH not set"}
+SUFFIX=""
+[ "${ARCH}" != "amd64" ] && SUFFIX="_${ARCH}"
+
+cd $(dirname $0)/..
+if [ ! -e bin/rancher-cni-macvlan  ]; then
+    ./scripts/build
+fi
+
+mkdir -p dist/artifacts
+cd bin
+tar cvzf ../dist/artifacts/rancher-cni-macvlan-${VERSION}.tar.gz .
