@@ -43,6 +43,14 @@ type NetConf struct {
 	IsDefaultGW bool   `json:"isDefaultGateway"`
 }
 
+// NetArgs holds the args passed to the network plugin
+type NetArgs struct {
+	types.CommonArgs
+	RancherContainerUUID types.UnmarshallableString
+	LinkMTUOverhead      types.UnmarshallableString
+	MACAddress           types.UnmarshallableString
+}
+
 func init() {
 	// this ensures that main runs only on main thread (thread group leader).
 	// since namespace ops (unshare, setns) are done for a single thread, we
@@ -59,6 +67,14 @@ func loadConf(bytes []byte) (*NetConf, error) {
 		return nil, fmt.Errorf(`"master" field is required. It specifies the host interface name to virtualize`)
 	}
 	return n, nil
+}
+
+func loadNetArgs(args string) (*NetArgs, error) {
+	nArgs := &NetArgs{}
+	if err := types.LoadArgs(args, nArgs); err != nil {
+		return nil, fmt.Errorf("failed to parse args %s: %v", args, err)
+	}
+	return nArgs, nil
 }
 
 func modeFromString(s string) (netlink.MacvlanMode, error) {
@@ -132,6 +148,11 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
+	nArgs, err := loadNetArgs(args.Args)
+	if err != nil {
+		return err
+	}
+
 	netns, err := ns.GetNS(args.Netns)
 	if err != nil {
 		return fmt.Errorf("failed to open netns %q: %v", netns, err)
@@ -151,11 +172,24 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return errors.New("IPAM plugin returned missing IPv4 config")
 	}
 
-	err = netns.Do(func(_ ns.NetNS) error {
-		if err := ip.SetHWAddrByIP(args.IfName, result.IP4.IP.IP, nil /* TODO IPv6 */); err != nil {
+	macAddressToSet := ""
+	if nArgs.MACAddress != "" {
+		fmt.Printf("rancher-cni-macvlan: setting the %v interface %v MAC address: %v", args.ContainerID, args.IfName, nArgs.MACAddress)
+		macAddressToSet = string(nArgs.MACAddress)
+	} else {
+		macAddressToSet, err = findMACAddressForContainer(args.ContainerID, string(nArgs.RancherContainerUUID))
+		if err != nil {
+			fmt.Errorf("rancher-cni-macvlan: err=%v", err)
 			return err
 		}
+		fmt.Printf("rancher-cni-macvlan: found the %v interface %v MAC address: %v", args.ContainerID, args.IfName, macAddressToSet)
+	}
 
+	err = netns.Do(func(_ ns.NetNS) error {
+		err := setInterfaceMacAddress(args.IfName, macAddressToSet)
+		if err != nil {
+			return fmt.Errorf("couldn't set the MAC Address of the interface: %v", err)
+		}
 		// set the default gateway if requested
 		if n.IsDefaultGW {
 			_, defaultNet, err := net.ParseCIDR("0.0.0.0/0")

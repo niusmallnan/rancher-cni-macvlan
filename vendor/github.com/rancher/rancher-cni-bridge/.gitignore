@@ -1,0 +1,7 @@
+/.dapper
+/bin
+/dist
+*.swp
+*.diff
+/.trash-cache
+rancher-cni-bridge
