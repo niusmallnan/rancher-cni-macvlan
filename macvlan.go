@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"runtime"
 
 	"github.com/containernetworking/cni/pkg/ip"
@@ -174,15 +175,15 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	macAddressToSet := ""
 	if nArgs.MACAddress != "" {
-		fmt.Printf("rancher-cni-macvlan: setting the %v interface %v MAC address: %v", args.ContainerID, args.IfName, nArgs.MACAddress)
+		fmt.Fprintf(os.Stdout, "rancher-cni-macvlan: setting the %v interface %v MAC address: %v", args.ContainerID, args.IfName, nArgs.MACAddress)
 		macAddressToSet = string(nArgs.MACAddress)
 	} else {
 		macAddressToSet, err = findMACAddressForContainer(args.ContainerID, string(nArgs.RancherContainerUUID))
 		if err != nil {
-			fmt.Errorf("rancher-cni-macvlan: err=%v", err)
+			fmt.Fprintf(os.Stderr, "rancher-cni-macvlan: err=%v", err)
 			return err
 		}
-		fmt.Printf("rancher-cni-macvlan: found the %v interface %v MAC address: %v", args.ContainerID, args.IfName, macAddressToSet)
+		fmt.Fprintf(os.Stdout, "rancher-cni-macvlan: found the %v interface %v MAC address: %v", args.ContainerID, args.IfName, macAddressToSet)
 	}
 
 	err = netns.Do(func(_ ns.NetNS) error {
