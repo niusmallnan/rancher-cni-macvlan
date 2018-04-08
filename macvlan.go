@@ -22,6 +22,7 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/containernetworking/cni/pkg/ip"
 	"github.com/containernetworking/cni/pkg/ipam"
 	"github.com/containernetworking/cni/pkg/ns"
@@ -160,8 +161,15 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	defer netns.Close()
 
-	if err = createMacvlan(n, args.IfName, netns); err != nil {
-		return err
+	if !checkIfContainerInterfaceExists(args) {
+		if err = createMacvlan(n, args.IfName, netns); err != nil {
+			return err
+		}
+	} else {
+		logrus.Infof("rancher-cni-macvlan: container already has interface: %v, no worries", args.IfName)
+		if err = setInterfaceDown(args); err != nil {
+			logrus.Infof("rancher-cni-macvlan: set interface %v down: %v", args.IfName, err)
+		}
 	}
 
 	// run the IPAM plugin and get back the config to apply
@@ -175,7 +183,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	macAddressToSet := ""
 	if nArgs.MACAddress != "" {
-		fmt.Fprintf(os.Stdout, "rancher-cni-macvlan: setting the %v interface %v MAC address: %v", args.ContainerID, args.IfName, nArgs.MACAddress)
+		logrus.Infof("rancher-cni-macvlan: setting the %v interface %v MAC address: %v", args.ContainerID, args.IfName, nArgs.MACAddress)
 		macAddressToSet = string(nArgs.MACAddress)
 	} else {
 		macAddressToSet, err = findMACAddressForContainer(args.ContainerID, string(nArgs.RancherContainerUUID))
@@ -183,7 +191,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			fmt.Fprintf(os.Stderr, "rancher-cni-macvlan: err=%v", err)
 			return err
 		}
-		fmt.Fprintf(os.Stdout, "rancher-cni-macvlan: found the %v interface %v MAC address: %v", args.ContainerID, args.IfName, macAddressToSet)
+		logrus.Infof("rancher-cni-macvlan: found the %v interface %v MAC address: %v", args.ContainerID, args.IfName, macAddressToSet)
 	}
 
 	err = netns.Do(func(_ ns.NetNS) error {
@@ -217,7 +225,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			// TODO: IPV6
 		}
 
-		return ipam.ConfigureIface(args.IfName, result)
+		return configureInterface(args.IfName, result)
 	})
 	if err != nil {
 		return err
@@ -225,6 +233,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	result.DNS = n.DNS
 	return result.Print()
+
 }
 
 func cmdDel(args *skel.CmdArgs) error {
